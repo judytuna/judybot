@@ -515,3 +515,22 @@ Response: The best way to keep yourself inspired is to go out and play. It's not
 
   The script automatically handles all the Ollama export if Unsloth is available, so you get a
   production-ready model that you can immediately use with ollama run blog-model!
+
+● Now let's try the simpler approach first. Run this to fix the CUDA headers and reinstall Unsloth
+  properly:
+
+  python fix_unsloth_simple.py
+
+  This script will:
+
+  1. Install CUDA development tools (the missing cuda.h headers)
+  2. Set proper environment variables for CUDA paths
+  3. Reinstall Unsloth with the correct compilation environment
+  4. Test if Unsloth works by loading a small model
+
+  The key issue is that WSL doesn't include CUDA development headers by default, even though the
+  CUDA runtime works fine. Once we install nvidia-cuda-dev, Unsloth should be able to compile its
+  optimized kernels.
+
+● Try running the fix script and let me know what happens!
+

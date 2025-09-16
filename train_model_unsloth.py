@@ -112,12 +112,22 @@ class EnhancedBlogTrainer:
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
+            # Check if flash attention is available
+            try:
+                import flash_attn
+                attn_implementation = "flash_attention_2"
+                print("✅ Using Flash Attention 2")
+            except ImportError:
+                attn_implementation = None
+                print("⚠️  Flash Attention not available, using standard attention")
+
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
                 trust_remote_code=True,
                 torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
                 device_map="auto" if torch.cuda.is_available() else None,
                 low_cpu_mem_usage=True,
+                attn_implementation=attn_implementation,
             )
 
             if hasattr(self.model, "gradient_checkpointing_enable"):
@@ -342,10 +352,18 @@ SYSTEM \"\"\"You are a helpful AI assistant trained on personal blog content. Yo
         else:
             from transformers import AutoTokenizer, AutoModelForCausalLM
             tokenizer = AutoTokenizer.from_pretrained(model_dir)
+            # Try to use flash attention for inference too
+            try:
+                import flash_attn
+                attn_implementation = "flash_attention_2"
+            except ImportError:
+                attn_implementation = None
+
             model = AutoModelForCausalLM.from_pretrained(
                 model_dir,
                 torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                device_map="auto" if torch.cuda.is_available() else None
+                device_map="auto" if torch.cuda.is_available() else None,
+                attn_implementation=attn_implementation,
             )
 
         # Format prompt
