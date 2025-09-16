@@ -141,8 +141,8 @@ class BlogDataExtractor:
 if __name__ == "__main__":
     # Initialize extractor
     extractor = BlogDataExtractor(
-        jekyll_path="/home/judytuna/judytuna-jekyll",
-        private_path="/home/judytuna/judytuna-private"
+        jekyll_path="../judytuna-jekyll",
+        private_path="../judytuna-private"
     )
 
     # Extract all posts

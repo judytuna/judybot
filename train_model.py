@@ -7,6 +7,7 @@ Supports Llama, Qwen, and Gemma models with efficient training.
 import os
 import json
 import torch
+import gc
 from pathlib import Path
 from transformers import (
     AutoTokenizer,
@@ -34,22 +35,25 @@ class BlogModelTrainer:
         self.tokenizer = None
         self.model = None
 
-        # Training parameters optimized for style learning
+        # Training parameters optimized for style learning and memory efficiency
         self.training_config = {
             "learning_rate": 2e-5,  # Lower LR for style preservation
             "num_train_epochs": 3,
-            "per_device_train_batch_size": 4,
-            "per_device_eval_batch_size": 4,
-            "gradient_accumulation_steps": 4,
+            "per_device_train_batch_size": 1,  # Reduced for memory
+            "per_device_eval_batch_size": 1,   # Reduced for memory
+            "gradient_accumulation_steps": 8,  # Increased to maintain effective batch size
             "warmup_steps": 100,
             "weight_decay": 0.01,
             "logging_steps": 10,
-            "eval_steps": 100,
-            "save_steps": 500,
-            "fp16": True,  # Memory optimization
+            "eval_steps": 200,  # Less frequent eval to save memory
+            "save_steps": 400,  # Multiple of eval_steps
+            "fp16": False,  # Disable FP16 to avoid gradient scaling issues
+            "bf16": torch.cuda.is_available() and torch.cuda.is_bf16_supported(),  # Use BF16 if available
             "gradient_checkpointing": True,
             "dataloader_num_workers": 0,  # Avoid Windows multiprocessing issues
-            "remove_unused_columns": False
+            "remove_unused_columns": False,
+            "max_grad_norm": 1.0,  # Gradient clipping for stability
+            "report_to": None,  # Disable wandb/tensorboard to save memory
         }
 
     def load_model_and_tokenizer(self):
@@ -67,12 +71,16 @@ class BlogModelTrainer:
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        # Load model
+        # Load model with memory optimizations
+        # Use bfloat16 if available, otherwise float32 to avoid FP16 gradient issues
+        dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float32
+
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
             trust_remote_code=True,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto" if torch.cuda.is_available() else None
+            torch_dtype=dtype,
+            device_map="auto" if torch.cuda.is_available() else None,
+            low_cpu_mem_usage=True,  # Reduce CPU memory usage during loading
         )
 
         # Enable gradient checkpointing for memory efficiency
@@ -80,6 +88,16 @@ class BlogModelTrainer:
             self.model.gradient_checkpointing_enable()
 
         print(f"Model loaded. Parameters: {self.model.num_parameters():,}")
+
+        # Print memory usage
+        if torch.cuda.is_available():
+            print(f"GPU memory allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+            print(f"GPU memory reserved: {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
+
+        # Clear cache
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
 
     def format_chat_message(self, messages: List[Dict[str, str]]) -> str:
         """Format messages into a single training string."""
@@ -128,11 +146,11 @@ class BlogModelTrainer:
                 formatted_text = self.format_chat_message(messages)
                 texts.append(formatted_text)
 
-            # Tokenize
+            # Tokenize with reduced context length for memory
             tokenized = self.tokenizer(
                 texts,
                 truncation=True,
-                max_length=1024,  # Reasonable context length
+                max_length=512,  # Reduced context length for memory efficiency
                 padding=False,
                 return_tensors=None
             )
@@ -173,7 +191,7 @@ class BlogModelTrainer:
         training_args = TrainingArguments(
             output_dir="./blog-model",
             overwrite_output_dir=True,
-            evaluation_strategy="steps",
+            eval_strategy="steps",  # Updated parameter name
             save_strategy="steps",
             load_best_model_at_end=True,
             metric_for_best_model="eval_loss",
@@ -227,14 +245,18 @@ class BlogModelTrainer:
         if torch.cuda.is_available():
             inputs = inputs.cuda()
 
-        # Generate
+        # Generate with better parameters to avoid repetition
         with torch.no_grad():
             outputs = self.model.generate(
                 inputs,
-                max_new_tokens=200,
-                temperature=0.8,
+                max_new_tokens=100,
+                temperature=0.7,
                 do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id
+                top_p=0.9,
+                repetition_penalty=1.1,
+                no_repeat_ngram_size=3,
+                pad_token_id=self.tokenizer.eos_token_id,
+                eos_token_id=self.tokenizer.eos_token_id
             )
 
         # Decode response
@@ -251,14 +273,16 @@ if __name__ == "__main__":
     # You can change this to try different models
     MODEL_OPTIONS = {
         "phi": "microsoft/Phi-3.5-mini-instruct",
-        "llama1b": "meta-llama/Llama-3.2-1B-Instruct",
-        "llama3b": "meta-llama/Llama-3.2-3B-Instruct",
+        "llama1b": "meta-llama/Llama-3.2-1B-Instruct",  # Requires auth
+        "llama3b": "meta-llama/Llama-3.2-3B-Instruct",  # Requires auth
         "qwen": "Qwen/Qwen2.5-1.5B-Instruct",
-        "gemma": "google/gemma-2-2b-it"
+        "gemma": "google/gemma-2-2b-it",  # Requires auth
+        "pythia": "EleutherAI/pythia-1.4b",  # Open alternative
+        "gpt2": "gpt2-medium"  # 355M params, very memory efficient
     }
 
-    # Choose your model here
-    model_choice = "qwen"  # Change this to try different models
+    # Choose your model here - using smaller model for memory constraints
+    model_choice = "gpt2"  # GPT2-medium is open and memory efficient
     model_name = MODEL_OPTIONS[model_choice]
 
     print(f"Using model: {model_name}")
