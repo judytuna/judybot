@@ -7,6 +7,10 @@ data/
 blog-model*/
 blog-model-final/
 
+# Unsloth compiled cache - machine specific
+unsloth_compiled_cache/
+*.unsloth_cache
+
 # Python
 __pycache__/
 *.py[cod]
