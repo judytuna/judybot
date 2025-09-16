@@ -11,16 +11,23 @@ import gc
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Try to import Unsloth - fallback to regular transformers if not available
+# Import unsloth first to avoid warnings, then fallback to transformers
+UNSLOTH_AVAILABLE = False
 try:
+    # Import unsloth before transformers to avoid optimization warnings
+    import unsloth
     from unsloth import FastLanguageModel
     from unsloth import is_bfloat16_supported
     UNSLOTH_AVAILABLE = True
     print("✅ Unsloth available - using optimized training")
 except ImportError:
-    UNSLOTH_AVAILABLE = False
     print("⚠️  Unsloth not available - falling back to standard transformers")
-    from transformers import AutoTokenizer, AutoModelForCausalLM
+except Exception as e:
+    print(f"⚠️  Unsloth import issue: {e}")
+    print("   Falling back to standard transformers")
+
+# Always import transformers for fallback
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from transformers import TrainingArguments, Trainer, DataCollatorForLanguageModeling
 from datasets import Dataset
@@ -53,8 +60,8 @@ class EnhancedBlogTrainer:
             "logging_steps": 5,
             "eval_steps": 100,
             "save_steps": 200,
-            "fp16": not is_bfloat16_supported() if UNSLOTH_AVAILABLE else False,
-            "bf16": is_bfloat16_supported() if UNSLOTH_AVAILABLE else torch.cuda.is_available(),
+            "fp16": torch.cuda.is_available(),  # Use FP16 for RTX 2080
+            "bf16": False,  # RTX 2080 doesn't support BF16 (needs Ampere+)
             "gradient_checkpointing": True,
             "dataloader_num_workers": 0,
             "remove_unused_columns": False,
@@ -108,7 +115,7 @@ class EnhancedBlogTrainer:
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
                 trust_remote_code=True,
-                torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
                 device_map="auto" if torch.cuda.is_available() else None,
                 low_cpu_mem_usage=True,
             )
@@ -337,7 +344,7 @@ SYSTEM \"\"\"You are a helpful AI assistant trained on personal blog content. Yo
             tokenizer = AutoTokenizer.from_pretrained(model_dir)
             model = AutoModelForCausalLM.from_pretrained(
                 model_dir,
-                torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
                 device_map="auto" if torch.cuda.is_available() else None
             )
 
