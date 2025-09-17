@@ -13,6 +13,7 @@ unsloth_compiled_cache/
 
 # Model offload cache - temporary files
 offload_cache/
+offload_cache_original/
 
 # LLAMA.cpp build artifacts and cache
 llama.cpp/

@@ -22,17 +22,27 @@ def merge_to_original_phi():
         base_model_name = "microsoft/Phi-3.5-mini-instruct"
         print(f"🎯 Using: {base_model_name}")
 
+        # Create offload directory for memory management
+        offload_dir = "./offload_cache_original"
+        os.makedirs(offload_dir, exist_ok=True)
+
         base_model = AutoModelForCausalLM.from_pretrained(
             base_model_name,
             torch_dtype=torch.float16,
             trust_remote_code=True,
-            device_map="auto"
+            device_map="auto",
+            offload_folder=offload_dir,
+            low_cpu_mem_usage=True
         )
 
         print("🔗 Loading LoRA adapter (trained on quantized version)...")
         # Load your LoRA adapter that was trained on the quantized version
         try:
-            model = PeftModel.from_pretrained(base_model, "./blog-model-unsloth-final/")
+            model = PeftModel.from_pretrained(
+                base_model,
+                "./blog-model-unsloth-final/",
+                offload_folder=offload_dir  # Use same offload directory
+            )
         except Exception as e:
             print(f"❌ LoRA loading failed: {e}")
             print("💡 This might be due to architecture mismatch")

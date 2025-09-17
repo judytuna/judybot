@@ -16,13 +16,15 @@ def check_ollama():
             print("❌ Ollama is not running. Start it with: ollama serve")
             return False
 
-        # Check if blog-model exists
-        if "blog-model" in result.stdout:
+        # Check if any blog model exists
+        if "blog-gpt2" in result.stdout:
+            print("✅ blog-gpt2 found in Ollama")
+            return "blog-gpt2"
+        elif "blog-model" in result.stdout:
             print("✅ blog-model found in Ollama")
-            return True
+            return "blog-model"
         else:
-            print("❌ blog-model not found. Run export_to_ollama.py first")
-            print("Available models:")
+            print("❌ No blog model found. Available models:")
             print(result.stdout)
             return False
 
@@ -30,9 +32,9 @@ def check_ollama():
         print("❌ Ollama not found. Make sure it's installed and in PATH")
         return False
 
-def chat_with_model():
+def chat_with_model(model_name):
     """Simple chat interface."""
-    print("\n💬 Chatting with your blog model")
+    print(f"\n💬 Chatting with {model_name}")
     print("=" * 35)
     print("Type 'quit', 'exit', or 'q' to stop")
     print("Type 'clear' to clear screen")
@@ -62,7 +64,7 @@ def chat_with_model():
 
             # Call Ollama with the user input
             result = subprocess.run(
-                ["ollama", "run", "blog-model", user_input],
+                ["ollama", "run", model_name, user_input],
                 capture_output=True,
                 text=True
             )
@@ -82,9 +84,9 @@ def chat_with_model():
         except Exception as e:
             print(f"❌ Error: {e}")
 
-def test_model():
+def test_model(model_name):
     """Test the model with a few prompts."""
-    print("\n🧪 Testing blog model...")
+    print(f"\n🧪 Testing {model_name}...")
 
     test_prompts = [
         "What do you think about programming?",
@@ -97,7 +99,7 @@ def test_model():
         print(f"🤖 Prompt: {prompt}")
 
         result = subprocess.run(
-            ["ollama", "run", "blog-model", prompt],
+            ["ollama", "run", model_name, prompt],
             capture_output=True,
             text=True,
             timeout=30
@@ -115,7 +117,8 @@ def main():
     print("🚀 Ollama Blog Chat Interface")
     print("=" * 30)
 
-    if not check_ollama():
+    model_name = check_ollama()
+    if not model_name:
         return
 
     while True:
@@ -129,9 +132,9 @@ def main():
         choice = input("\nSelect (1-4): ").strip()
 
         if choice == '1':
-            chat_with_model()
+            chat_with_model(model_name)
         elif choice == '2':
-            test_model()
+            test_model(model_name)
         elif choice == '3':
             result = subprocess.run(["ollama", "list"], capture_output=True, text=True)
             print("\n📋 Available Ollama models:")
