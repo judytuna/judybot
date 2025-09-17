@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Simple web interface for the blog bot using Flask.
+Safe web interface that prevents garbled output from corrupting the UI.
 """
 
 import os
+import html
 from flask import Flask, render_template_string, request, jsonify
 
 app = Flask(__name__)
@@ -18,10 +19,10 @@ def load_model():
     try:
         from unsloth import FastLanguageModel
 
-        print("🤖 Loading model for web interface...")
+        print("🤖 Loading model for safe web interface...")
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name="./blog-model-unsloth-final",
-            max_seq_length=1024,
+            max_seq_length=512,  # Shorter to reduce corruption
             dtype=None,
             load_in_4bit=True,
         )
@@ -33,8 +34,8 @@ def load_model():
         print(f"❌ Error loading model: {e}")
         return False
 
-def generate_response(prompt, mode="chat"):
-    """Generate response from the model with proper attention mask."""
+def safe_generate_response(prompt, mode="chat"):
+    """Generate response with safety checks."""
     global model, tokenizer
 
     if not model or not tokenizer:
@@ -42,6 +43,11 @@ def generate_response(prompt, mode="chat"):
 
     try:
         import torch
+
+        # Sanitize input prompt
+        prompt = html.escape(prompt.strip())
+        if len(prompt) > 200:
+            prompt = prompt[:200]
 
         # Format prompt based on mode
         if mode == "chat":
@@ -51,7 +57,7 @@ def generate_response(prompt, mode="chat"):
         else:  # completion
             formatted_prompt = f"{prompt} "
 
-        # Tokenize with attention mask
+        # Safe tokenization
         inputs = tokenizer.encode(formatted_prompt, return_tensors="pt")
         attention_mask = torch.ones(inputs.shape, dtype=torch.long)
 
@@ -64,11 +70,11 @@ def generate_response(prompt, mode="chat"):
             outputs = model.generate(
                 inputs,
                 attention_mask=attention_mask,
-                max_new_tokens=60,
-                temperature=0.4,
+                max_new_tokens=30,  # Much shorter to reduce corruption
+                temperature=0.1,    # Very low temperature
                 do_sample=True,
-                top_p=0.8,
-                repetition_penalty=1.2,
+                top_p=0.5,         # Very focused
+                repetition_penalty=1.5,  # Strong repetition penalty
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id,
                 early_stopping=True
@@ -77,96 +83,76 @@ def generate_response(prompt, mode="chat"):
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         result = response[len(formatted_prompt):].strip()
 
-        # Clean up response
+        # Aggressive cleaning
         if result:
-            for marker in ['\n\n', '---', '###']:
-                if marker in result:
-                    result = result.split(marker)[0].strip()
+            # Remove HTML-like content
+            result = html.escape(result)
 
-        return result if result else "..."
+            # Remove URLs and suspicious patterns
+            suspicious_patterns = ['http', 'www.', '$', '^', '[', ']', '{', '}', '<', '>', '|']
+            for pattern in suspicious_patterns:
+                if pattern in result:
+                    result = "Sorry, I generated some corrupted text. The model needs retraining."
+                    break
+
+            # Limit length
+            if len(result) > 100:
+                result = result[:100] + "..."
+
+            # Check for coherence
+            if len(result.split()) > 20 or len(result) < 3:
+                result = "Sorry, I generated an incoherent response. The model needs debugging."
+
+        return result if result else "No response generated"
 
     except Exception as e:
-        return f"Error: {e}"
+        return f"Generation error: {str(e)[:50]}"
 
-# HTML template
-HTML_TEMPLATE = """
+# Safe HTML template with better error handling
+SAFE_HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Personal Blog Bot</title>
+    <title>Safe Blog Bot</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
         .chat-container { border: 1px solid #ddd; height: 400px; overflow-y: scroll; padding: 10px; margin: 10px 0; }
-        .message { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .message { margin: 10px 0; padding: 10px; border-radius: 5px; word-wrap: break-word; }
         .user { background-color: #e3f2fd; text-align: right; }
         .bot { background-color: #f3e5f5; }
+        .error { background-color: #ffebee; color: #c62828; }
         .input-container { display: flex; gap: 10px; margin: 10px 0; }
         input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
         button { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
         .send-btn { background-color: #2196f3; color: white; }
-        .mode-btn { background-color: #9c27b0; color: white; margin: 5px; }
-        .active-mode { background-color: #4caf50; }
-        .header { text-align: center; color: #333; }
-        .mode-info { background-color: #fff3e0; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .warning { background-color: #fff3e0; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #ff9800; }
     </style>
 </head>
 <body>
-    <h1 class="header">🤖 Personal Blog Bot</h1>
-    <p class="header">Chat with your blog personality!</p>
+    <h1>🤖 Safe Blog Bot (Debug Mode)</h1>
 
-    <div class="mode-info">
-        <strong>Current Mode: <span id="current-mode">Chat</span></strong>
-        <div>
-            <button class="mode-btn active-mode" onclick="setMode('chat')">💬 Chat</button>
-            <button class="mode-btn" onclick="setMode('blog')">📝 Blog Assistant</button>
-            <button class="mode-btn" onclick="setMode('complete')">🔮 Complete</button>
-        </div>
-        <div id="mode-description">Ask questions or have conversations with your blog personality!</div>
+    <div class="warning">
+        <strong>⚠️ Model Status:</strong> The trained model is producing corrupted output.
+        This interface includes safety measures to prevent UI corruption while we debug the training issue.
     </div>
 
     <div id="chat-container" class="chat-container"></div>
 
     <div class="input-container">
-        <input type="text" id="user-input" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+        <input type="text" id="user-input" placeholder="Type a simple message..." maxlength="100" onkeypress="handleKeyPress(event)">
         <button class="send-btn" onclick="sendMessage()">Send</button>
     </div>
 
     <script>
-        let currentMode = 'chat';
-
-        const modeDescriptions = {
-            'chat': 'Ask questions or have conversations with your blog personality!',
-            'blog': 'Get help writing blog posts. Try: "programming", "travel", "learning"',
-            'complete': 'Start a sentence and let the bot complete it. Try: "Today I was thinking"'
-        };
-
-        function setMode(mode) {
-            currentMode = mode;
-            document.getElementById('current-mode').textContent =
-                mode === 'chat' ? 'Chat' : mode === 'blog' ? 'Blog Assistant' : 'Complete';
-
-            document.getElementById('mode-description').textContent = modeDescriptions[mode];
-
-            // Update button styles
-            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active-mode'));
-            event.target.classList.add('active-mode');
-
-            // Update placeholder
-            const input = document.getElementById('user-input');
-            if (mode === 'chat') {
-                input.placeholder = 'Ask a question...';
-            } else if (mode === 'blog') {
-                input.placeholder = 'Enter blog topic...';
-            } else {
-                input.placeholder = 'Start a sentence...';
-            }
-        }
-
-        function addMessage(content, isUser) {
+        function addMessage(content, isUser, isError = false) {
             const container = document.getElementById('chat-container');
             const message = document.createElement('div');
-            message.className = 'message ' + (isUser ? 'user' : 'bot');
-            message.textContent = (isUser ? '🧑 You: ' : '🤖 BlogBot: ') + content;
+            message.className = 'message ' + (isUser ? 'user' : isError ? 'error' : 'bot');
+
+            // Safely set text content (no HTML injection)
+            const prefix = isUser ? '🧑 You: ' : isError ? '❌ Error: ' : '🤖 Bot: ';
+            message.textContent = prefix + content;
+
             container.appendChild(message);
             container.scrollTop = container.scrollHeight;
         }
@@ -175,15 +161,19 @@ HTML_TEMPLATE = """
             const input = document.getElementById('user-input');
             const message = input.value.trim();
 
-            if (!message) return;
+            if (!message || message.length > 100) {
+                addMessage('Message too long or empty', false, true);
+                return;
+            }
 
+            // Safely display user message
             addMessage(message, true);
             input.value = '';
 
             // Show thinking message
             const thinkingMsg = document.createElement('div');
             thinkingMsg.className = 'message bot';
-            thinkingMsg.textContent = '🤖 Thinking...';
+            thinkingMsg.textContent = '🤖 Generating (debug mode)...';
             thinkingMsg.id = 'thinking-msg';
             document.getElementById('chat-container').appendChild(thinkingMsg);
 
@@ -194,28 +184,23 @@ HTML_TEMPLATE = """
                 },
                 body: JSON.stringify({
                     prompt: message,
-                    mode: currentMode
+                    mode: 'chat'
                 })
             })
             .then(response => response.json())
             .then(data => {
                 document.getElementById('thinking-msg').remove();
 
-                let displayText = data.response;
-                if (currentMode === 'complete') {
-                    displayText = message + ' ' + data.response;
-                    // Replace the user message with the complete version
-                    const messages = document.querySelectorAll('.message.user');
-                    const lastUserMsg = messages[messages.length - 1];
-                    lastUserMsg.textContent = '🧑 You: ' + displayText;
-                    return; // Don't add bot message for completion mode
+                // Safely display response
+                if (data.response && data.response.length > 0) {
+                    addMessage(data.response, false);
+                } else {
+                    addMessage('No response generated', false, true);
                 }
-
-                addMessage(displayText, false);
             })
             .catch(error => {
                 document.getElementById('thinking-msg').remove();
-                addMessage('Sorry, there was an error!', false);
+                addMessage('Network error: ' + error.message, false, true);
                 console.error('Error:', error);
             });
         }
@@ -228,7 +213,7 @@ HTML_TEMPLATE = """
 
         // Add welcome message
         window.onload = function() {
-            addMessage('Hi! I\\'m your personal blog bot, trained on your writing. Choose a mode and start chatting!', false);
+            addMessage('Debug mode active. The model is currently producing corrupted output, but this interface prevents UI corruption.', false);
         };
     </script>
 </body>
@@ -238,18 +223,28 @@ HTML_TEMPLATE = """
 @app.route('/')
 def index():
     """Main page."""
-    return render_template_string(HTML_TEMPLATE)
+    return render_template_string(SAFE_HTML_TEMPLATE)
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    """Generate response API."""
-    data = request.json
-    prompt = data.get('prompt', '')
-    mode = data.get('mode', 'chat')
+    """Safe generate response API."""
+    try:
+        data = request.json
+        prompt = data.get('prompt', '')
+        mode = data.get('mode', 'chat')
 
-    response = generate_response(prompt, mode)
+        # Input validation
+        if not prompt or len(prompt.strip()) == 0:
+            return jsonify({'response': 'Empty prompt'})
 
-    return jsonify({'response': response})
+        if len(prompt) > 200:
+            return jsonify({'response': 'Prompt too long'})
+
+        response = safe_generate_response(prompt, mode)
+        return jsonify({'response': response})
+
+    except Exception as e:
+        return jsonify({'response': f'Server error: {str(e)[:50]}'})
 
 if __name__ == '__main__':
     if not os.path.exists("./blog-model-unsloth-final"):
@@ -257,8 +252,9 @@ if __name__ == '__main__':
         exit(1)
 
     if load_model():
-        print("\n🌐 Starting web interface...")
+        print("\n🛡️  Starting SAFE web interface...")
         print("Open your browser to: http://localhost:5000")
-        app.run(debug=True, host='0.0.0.0', port=5000)
+        print("This version prevents UI corruption while we debug the model.")
+        app.run(debug=False, host='0.0.0.0', port=5000)  # Debug=False to prevent reloading issues
     else:
         print("❌ Could not start web interface")

@@ -11,6 +11,44 @@ blog-model-final/
 unsloth_compiled_cache/
 *.unsloth_cache
 
+# Model offload cache - temporary files
+offload_cache/
+
+# LLAMA.cpp build artifacts and cache
+llama.cpp/
+*.llamacpp
+
+# Training checkpoints and state files
+checkpoint-*/
+*/checkpoint-*/
+optimizer.pt
+scheduler.pt
+scaler.pt
+rng_state.pth
+trainer_state.json
+
+# TensorBoard and experiment tracking
+runs/
+wandb/
+mlruns/
+*.tb
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# VS Code settings
+.vscode/
+
+# Model cache and temporary files
+*.cache
+*.tmp
+*.temp
+cache/
+
+# HuggingFace cache (if local)
+transformers_cache/
+huggingface_hub/
+
 # Python
 __pycache__/
 *.py[cod]
